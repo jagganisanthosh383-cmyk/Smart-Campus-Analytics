@@ -31,15 +31,18 @@ def _bounded(value: float | None, low: float, high: float) -> float | None:
 def score_student(row: pd.Series | dict[str, Any]) -> dict[str, Any]:
     row = pd.Series(row)
     raw: dict[str, dict[str, Any]] = {}
+    marks = _number(row, ("academic_marks", "academic_marks_pct"))
     cgpa = _number(row, ("cgpa", "current_cgpa", "gpa"))
-    academic = _bounded(cgpa, 0, 10)
-    raw["academic"] = {"score": academic, "inputs": {"cgpa": cgpa}, "explanation": "CGPA normalized linearly from 0–10."}
+    academic = _bounded(marks, 0, 100) if marks is not None else _bounded(cgpa, 0, 10)
+    raw["academic"] = {"score": academic, "inputs": {"academic_marks": marks, "cgpa": cgpa}, "explanation": "Academic marks on a 0-100 scale, or legacy CGPA normalized from 0-10."}
 
     attendance = _number(row, ("attendance_pct", "attendance_percentage", "attendance"))
     raw["attendance"] = {"score": _bounded(attendance, 0, 100), "inputs": {"attendance_pct": attendance}, "explanation": "Attendance percentage on a 0–100 scale."}
 
     assignment = _number(row, ("assignment_completion_pct", "assignment_completion", "assignments_completed_pct"))
-    raw["lms"] = {"score": _bounded(assignment, 0, 100), "inputs": {"assignment_completion_pct": assignment}, "explanation": "Assignment completion percentage; login counts are not treated as positive engagement."}
+    lms = _number(row, ("lms_activity_score",))
+    lms = lms if lms is not None else assignment
+    raw["lms"] = {"score": _bounded(lms, 0, 100), "inputs": {"lms_activity_score": lms, "assignment_completion_pct": assignment}, "explanation": "Documented LMS activity score or assignment completion on a 0-100 scale."}
 
     placement_inputs = {
         "aptitude": _number(row, ("aptitude_score", "aptitude_pct")),
@@ -48,7 +51,8 @@ def score_student(row: pd.Series | dict[str, Any]) -> dict[str, Any]:
     }
     placement_parts = [_bounded(v, 0, 100) for v in placement_inputs.values()]
     valid_placement = [v for v in placement_parts if v is not None]
-    raw["placement"] = {"score": float(np.mean(valid_placement)) if valid_placement else None, "inputs": placement_inputs, "explanation": "Mean of available aptitude, coding, and mock interview scores."}
+    readiness = _number(row, ("placement_readiness_score",))
+    raw["placement"] = {"score": _bounded(readiness, 0, 100) if readiness is not None else (float(np.mean(valid_placement)) if valid_placement else None), "inputs": {**placement_inputs, "placement_readiness_score": readiness}, "explanation": "Placement readiness score or mean of available assessments."}
 
     skill_inputs = {
         "technical_skills": _number(row, ("technical_skills_score", "technical_score")),
@@ -57,7 +61,8 @@ def score_student(row: pd.Series | dict[str, Any]) -> dict[str, Any]:
     }
     skill_parts = [_bounded(v, 0, 100) for v in skill_inputs.values()]
     valid_skills = [v for v in skill_parts if v is not None]
-    raw["skills_engagement"] = {"score": float(np.mean(valid_skills)) if valid_skills else None, "inputs": skill_inputs, "explanation": "Mean of available technical, soft-skill, and documented engagement scores."}
+    skills = _number(row, ("skills_score",))
+    raw["skills_engagement"] = {"score": _bounded(skills, 0, 100) if skills is not None else (float(np.mean(valid_skills)) if valid_skills else None), "inputs": {**skill_inputs, "skills_score": skills}, "explanation": "Skills score or mean of available assessment scores."}
 
     feedback = _number(row, ("support_feedback_score", "skills_feedback_score", "feedback_score"))
     feedback_norm = _bounded(feedback, 0, 5) if feedback is not None and feedback <= 5 else _bounded(feedback, 0, 100)

@@ -26,12 +26,15 @@ def assess_risk(student: dict[str, Any]) -> dict[str, Any]:
     academic, placement = [], []
     attendance = val("attendance_pct", "attendance_percentage", "attendance")
     cgpa = val("cgpa", "current_cgpa", "gpa")
+    marks = val("academic_marks")
     backlog = val("backlogs", "backlog_count")
     assignment = val("assignment_completion_pct", "assignment_completion", "assignments_completed_pct")
     if attendance is not None and attendance < 65:
         academic.append({"rule": "low_attendance", "evidence": {"attendance_pct": attendance}, "reason": "Attendance is below the example 65% threshold."})
     if cgpa is not None and cgpa < 6:
         academic.append({"rule": "low_cgpa", "evidence": {"cgpa": cgpa}, "reason": "CGPA is below the example 6/10 threshold."})
+    if marks is not None and marks < 60:
+        academic.append({"rule": "low_academic_marks", "evidence": {"academic_marks": marks}, "reason": "Academic marks are below the example 60/100 review threshold."})
     if backlog is not None and backlog > 0:
         academic.append({"rule": "recorded_backlogs", "evidence": {"backlogs": backlog}, "reason": "One or more backlogs are recorded."})
     if assignment is not None and assignment < 50:
@@ -40,9 +43,12 @@ def assess_risk(student: dict[str, Any]) -> dict[str, Any]:
         value = val(*aliases)
         if value is not None and value < 40:
             placement.append({"rule": f"low_{key}", "evidence": {f"{key}_score": value}, "reason": f"Recorded {key} assessment is below the example 40/100 threshold."})
+    readiness = val("placement_readiness_score")
+    if readiness is not None and readiness < 40:
+        placement.append({"rule": "low_placement_readiness", "evidence": {"placement_readiness_score": readiness}, "reason": "Placement readiness is below the example 40/100 threshold."})
 
-    academic_present = any(v is not None for v in (attendance, cgpa, backlog, assignment))
-    placement_present = any(val(*keys) is not None for keys in (("aptitude_score", "aptitude_pct"), ("coding_score", "coding_pct"), ("mock_interview_score", "interview_score")))
+    academic_present = any(v is not None for v in (attendance, cgpa, marks, backlog, assignment))
+    placement_present = readiness is not None or any(val(*keys) is not None for keys in (("aptitude_score", "aptitude_pct"), ("coding_score", "coding_pct"), ("mock_interview_score", "interview_score")))
     def category(flags: list, present: bool) -> dict[str, Any]:
         if flags:
             severity = "high" if len(flags) >= 2 else "moderate"

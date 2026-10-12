@@ -116,3 +116,42 @@ def test_cors_allows_only_configured_frontend_origin(monkeypatch):
     denied = client.get("/api/health", headers={"Origin": "https://other.example"})
     assert allowed.headers.get("Access-Control-Allow-Origin") == "https://campuspulse.example"
     assert denied.headers.get("Access-Control-Allow-Origin") is None
+
+
+def test_demo_roster_display_headers_and_dashboard_metrics():
+    from backend.data_loader import DATA_DIR, load_dataset
+    expected = [f"25D01A66{i:02}" for i in range(1, 11)]
+    frame, _ = load_dataset(DATA_DIR)
+    assert frame.student_id.tolist() == expected
+    assert frame.department.eq("CSE AIML").all()
+    app = create_app(); app.config["DATA_DIR"] = DATA_DIR; client = app.test_client()
+    roster = client.get("/api/students?per_page=20").json
+    assert roster["total"] == 10
+    assert roster["items"][0]["name"] == "Aarav Mehta"
+    assert roster["items"][0]["score"]["success_score"] is not None
+    assert roster["items"][0]["risk_level"] == "Low"
+    summary = client.get("/api/dashboard/summary").json
+    assert summary["total_students"] == 10
+    assert summary["average_attendance"] == pytest.approx(frame.attendance_pct.astype(float).mean())
+    assert summary["average_academic_marks"] == pytest.approx(frame.academic_marks.astype(float).mean())
+    assert summary["high_risk_student_count"] == 2
+    assert summary["mean_success_score"] is not None
+
+
+def test_missing_roster_returns_actionable_api_error(tmp_path: Path):
+    app = create_app(); app.config["DATA_DIR"] = tmp_path; client = app.test_client()
+    response = client.get("/api/dashboard/summary")
+    assert response.status_code == 503
+    assert "students.csv is missing" in response.json["error"]
+    assert client.get("/api/students").status_code == 503
+    assert client.get("/api/students/export").status_code == 503
+
+
+def test_invalid_demo_measurement_is_reported_instead_of_becoming_zero(tmp_path: Path):
+    pd.DataFrame({"Student ID": ["S1"], "Attendance": [140]}).to_csv(tmp_path / "students.csv", index=False)
+    app = create_app(); app.config["DATA_DIR"] = tmp_path; client = app.test_client()
+    response = client.get("/api/dashboard/summary")
+    assert response.status_code == 422
+    assert "invalid numeric values" in response.json["error"]
+    assert client.get("/api/students").status_code == 422
+    assert client.get("/api/students/export").status_code == 422

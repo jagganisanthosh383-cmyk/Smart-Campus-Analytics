@@ -4,9 +4,9 @@ CampusPulse is a student hackathon prototype for explainable student support ana
 
 ## Current data setup
 
-Place institution-approved CSVs in `backend/data/`. The application expects `students.csv` as its roster and optionally reads `academics.csv`, `attendance.csv`, `lms.csv`, `engagement.csv`, `placement.csv`, `skills.csv`, and `skills_feedback.csv`. Every source must have a unique, nonblank `student_id`; optional sources with invalid IDs are excluded and reported. The roster is preserved with left joins. Missing optional sources or measurements stay missing. **This repository currently contains no CSV data**, so dashboard data sections will show empty states until source files are provided.
+Place institution-approved CSVs in `backend/data/`. The application expects `students.csv` as its roster and optionally reads `academics.csv`, `attendance.csv`, `lms.csv`, `engagement.csv`, `placement.csv`, `skills.csv`, and `skills_feedback.csv`. Every source must have a unique, nonblank `student_id`; optional sources with invalid IDs are excluded and reported. The roster is preserved with left joins. Missing optional sources or measurements stay missing. **The repository includes a fictional 10-student CSE AIML demo roster** in `backend/data/students.csv`. It is intended for hackathon demonstration only; replace it only with authorized data when appropriate.
 
-Recognized indicator headers are documented in [docs/methodology.md](docs/methodology.md). Only the student identifier is required for integration; measurements are optional and included in scoring only when valid. No synthetic student data is shipped.
+Recognized indicator headers are documented in [docs/methodology.md](docs/methodology.md). Only the student identifier is required for integration; measurements are optional and included in scoring only when valid. The included demo roster contains synthetic student data.
 
 ## Windows PowerShell setup
 
@@ -51,10 +51,10 @@ Student listing supports `department`, `year`, `search`, `academic_risk`, `place
 - **Python command not found:** install Python with the Windows launcher (`py`) and recreate `.venv`.
 - **Vite cannot connect:** confirm Flask is running on port 5000 and open the Vite URL (usually `http://localhost:5173`).
 - **CORS errors:** use the Vite proxy or configure `CAMPUSPULSE_CORS_ORIGINS` with the exact frontend origin.
-- **No values in dashboard:** add real CSV data; an empty roster is intentional and no demo measurements are fabricated.
+- **No values in dashboard:** check `/api/data-quality`; the API reports missing or invalid roster data instead of presenting fabricated zero values.
 
 ## Demo and limitations
 
 Follow [docs/demo-script.md](docs/demo-script.md) for the demo. Prototype weights, thresholds, indicator scales, and support rules require institution review. No predictive model has been trained. Verify source definitions and student privacy controls before any real deployment.
 
-For a public HTTPS deployment, follow [docs/deployment.md](docs/deployment.md). The included Render Blueprint targets the existing Flask API; deploy the existing Vite frontend from the `frontend/` root in Vercel and set `VITE_API_BASE_URL` to the actual Render HTTPS origin.
+For a public HTTPS deployment, follow [docs/deployment.md](docs/deployment.md). The included Render Blueprint targets the existing Flask API; deploy the existing Vite frontend as a Render Static Site from the `frontend/` root and set `VITE_API_BASE_URL` to the actual API HTTPS origin.

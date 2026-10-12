@@ -25,7 +25,7 @@ METHODOLOGY = {
     "notice": "Prototype rules and weights require institutional validation. Risk flags support human review and are not predictions of failure.",
     "weights": WEIGHTS,
     "minimum_score_coverage": MIN_COVERAGE,
-    "thresholds": {"attendance_pct": 65, "cgpa_out_of_10": 6, "assignment_completion_pct": 50, "placement_assessment_out_of_100": 40},
+    "thresholds": {"attendance_pct": 65, "cgpa_out_of_10": 6, "academic_marks_out_of_100": 60, "assignment_completion_pct": 50, "placement_assessment_out_of_100": 40, "placement_readiness_out_of_100": 40},
     "missing_data": "Missing indicators are excluded, never replaced with zero. Available weights are renormalized only when coverage is at least 70%; lower coverage returns a null score.",
     "limitations": ["Rule-based prototype, not a validated predictive model.", "Available data and source measurement scales must be verified with the institution.", "No student should be labeled as low risk solely because information is missing."],
 }
@@ -42,6 +42,11 @@ def _records(frame: pd.DataFrame) -> list[dict[str, Any]]:
         item["score"] = score_student(item)
         item["risk"] = assess_risk(item)
         item["segments"] = segment_membership(item)
+        item["success_score"] = item["score"]["success_score"]
+        categories = [item["risk"][k]["category"] for k in ("academic", "placement")]
+        item["risk_level"] = "High" if any(item["risk"][k]["severity"] == "high" for k in ("academic", "placement")) else ("Medium" if "risk" in categories else ("Needs assessment" if "needs_assessment" in categories else "Low"))
+        if not item.get("recommended_intervention"):
+            item["recommended_intervention"] = "; ".join(x["action"] for x in recommendations_for(item)) or "Continue routine mentoring and review progress."
         out.append(item)
     return out
 
@@ -84,6 +89,10 @@ def create_app() -> Flask:
     except ImportError:
         pass
 
+    @app.errorhandler(DataValidationError)
+    def invalid_data(error: DataValidationError):
+        return jsonify({"error": str(error)}), error.status_code
+
     @app.errorhandler(500)
     def internal_error(_error):
         app.logger.exception("Unhandled API error")
@@ -122,8 +131,8 @@ def create_app() -> Flask:
             records = _filtered(_records(frame), request.args)
             total = len(records)
             return jsonify({"items": records[(page-1)*per_page:page*per_page], "page": page, "per_page": per_page, "total": total, "pages": (total+per_page-1)//per_page})
+        except DataValidationError as exc: return jsonify({"error": str(exc)}), exc.status_code
         except ValueError as exc: return jsonify({"error": str(exc)}), 400
-        except DataValidationError as exc: return jsonify({"error": str(exc)}), 422
 
     @app.get("/api/students/export")
     def export_students():
@@ -133,9 +142,9 @@ def create_app() -> Flask:
             year_values = frame["year"].dropna().astype(str).unique() if "year" in frame else frame["academic_year"].dropna().astype(str).unique() if "academic_year" in frame else []
             if request.args.get("year") and request.args["year"] not in year_values: raise ValueError("year is not a known filter value")
             rows = _filtered(_records(frame), request.args)
+        except DataValidationError as exc: return jsonify({"error": str(exc)}), exc.status_code
         except ValueError as exc: return jsonify({"error": str(exc)}), 400
-        except DataValidationError as exc: return jsonify({"error": str(exc)}), 422
-        fields = ["student_id", "name", "department", "year", "cgpa", "attendance_pct", "success_score", "score_status", "overall_risk"]
+        fields = ["student_id", "name", "department", "year", "attendance_pct", "academic_marks", "lms_activity_score", "placement_readiness_score", "skills_score", "success_score", "risk_level", "recommended_intervention", "score_status", "overall_risk"]
         buf = io.StringIO(newline=""); writer = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore"); writer.writeheader()
         for r in rows:
             line = {**r, "success_score": r["score"]["success_score"], "score_status": r["score"]["score_status"]}
@@ -167,9 +176,11 @@ def create_app() -> Flask:
     @app.get("/api/dashboard/kpis")
     def dashboard_summary():
         frame, quality = _load(app); rows = _records(frame); scores = [r["score"]["success_score"] for r in rows if r["score"]["success_score"] is not None]
+        attendance_values = pd.to_numeric(frame.get("attendance_pct", pd.Series(dtype=float)), errors="coerce").dropna()
+        marks_values = pd.to_numeric(frame.get("academic_marks", pd.Series(dtype=float)), errors="coerce").dropna()
         flagged = sum(r["risk"]["academic"]["category"] == "risk" or r["risk"]["placement"]["category"] == "risk" for r in rows)
         distribution = [{"range": label, "count": sum(low <= s < high for s in scores)} for label, low, high in (("0–39", 0, 40), ("40–59", 40, 60), ("60–79", 60, 80), ("80–100", 80, 101))]
-        return jsonify({"student_count": len(rows), "scored_student_count": len(scores), "mean_success_score": round(sum(scores)/len(scores), 2) if scores else None,
+        return jsonify({"student_count": len(rows), "total_students": len(rows), "average_attendance": round(float(attendance_values.mean()), 2) if len(attendance_values) else None, "average_academic_marks": round(float(marks_values.mean()), 2) if len(marks_values) else None, "high_risk_student_count": sum(r["risk_level"] == "High" for r in rows), "scored_student_count": len(scores), "mean_success_score": round(sum(scores)/len(scores), 2) if scores else None,
                         "students_with_observed_risk": flagged, "needs_assessment_count": sum("needs_assessment" in (r["risk"]["academic"]["category"], r["risk"]["placement"]["category"]) for r in rows), "score_distribution": distribution, "data_quality": quality})
 
     @app.get("/api/analytics/departments")
