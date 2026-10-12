@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: campuspulse-api
+    runtime: python
+    plan: free
+    buildCommand: python -m pip install -r backend/requirements.txt
+    startCommand: python -m gunicorn --chdir backend main:app --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.4
+      - key: CAMPUSPULSE_CORS_ORIGINS
+        sync: false

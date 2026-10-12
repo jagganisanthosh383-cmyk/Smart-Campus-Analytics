@@ -1,0 +1,6 @@
+Flask>=3.0,<4
+Flask-Cors>=4,<6
+gunicorn>=23,<24
+pandas>=2.0,<4
+numpy>=1.24,<3
+pytest>=8,<9
