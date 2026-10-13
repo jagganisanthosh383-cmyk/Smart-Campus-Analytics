@@ -27,7 +27,10 @@ METHODOLOGY = {
     "minimum_score_coverage": MIN_COVERAGE,
     "thresholds": {"attendance_pct": 65, "cgpa_out_of_10": 6, "academic_marks_out_of_100": 60, "assignment_completion_pct": 50, "placement_assessment_out_of_100": 40, "placement_readiness_out_of_100": 40},
     "missing_data": "Missing indicators are excluded, never replaced with zero. Available weights are renormalized only when coverage is at least 70%; lower coverage returns a null score.",
-    "limitations": ["Rule-based prototype, not a validated predictive model.", "Available data and source measurement scales must be verified with the institution.", "No student should be labeled as low risk solely because information is missing."],
+    "minimum_coverage_rule": "Coverage is the sum of weights for score components with valid measurements. Available component weights are renormalized only at or above 70%; lower coverage has no numeric score. Scores below 100% coverage are provisional.",
+    "risk_review": "Example rule-based thresholds require institutional validation. Missing information alone never creates high risk. Recommendations require staff review.",
+    "source_purposes": {"students": "Synthetic demo roster and student IDs", "academics": "CGPA or academic marks", "attendance": "Attendance percentage", "lms": "LMS activity or assignment completion", "engagement": "Engagement/activity score", "placement": "Aptitude, coding, interview, or readiness scores", "skills": "Technical and soft skills scores", "skills_feedback": "Support or skills feedback score"},
+    "limitations": ["All included student and supplemental records are synthetic demonstration data, not institutional records.", "Rule-based prototype, not a validated predictive model.", "Available data and source measurement scales must be verified with the institution."],
 }
 
 
@@ -103,7 +106,12 @@ def create_app() -> Flask:
         return jsonify({"status": "ok", "service": "CampusPulse API"})
 
     @app.get("/api/methodology")
-    def methodology(): return jsonify(METHODOLOGY)
+    def methodology():
+        report = inspect_sources(app.config["DATA_DIR"])
+        return jsonify({**METHODOLOGY, "sources": report["sources"], "expected_source_count": report["expected_source_count"],
+                        "detected_source_count": report["detected_source_count"], "detected_sources": report["detected_sources"],
+                        "missing_sources": report["missing_sources"], "invalid_sources": report["invalid_sources"],
+                        "available_sources": report["detected_sources"]})
 
     @app.get("/api/data-quality")
     def data_quality():

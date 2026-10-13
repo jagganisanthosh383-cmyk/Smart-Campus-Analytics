@@ -17,6 +17,42 @@ def test_empty_data_dir_is_reported_without_fake_data(tmp_path: Path):
     assert load_students(tmp_path).empty
 
 
+def test_all_eight_demo_sources_are_valid_and_reported_by_methodology():
+    from backend.data_loader import DATA_DIR
+    report = inspect_sources(DATA_DIR)
+    assert report["expected_source_count"] == report["detected_source_count"] == 8
+    assert report["missing_sources"] == report["invalid_sources"] == []
+    app = create_app(); app.config["DATA_DIR"] = DATA_DIR
+    methodology = app.test_client().get("/api/methodology").json
+    assert methodology["detected_source_count"] == 8
+    assert methodology["minimum_score_coverage"] == 0.70
+    assert methodology["weights"] == {"academic": .3, "attendance": .2, "lms": .15, "placement": .2, "skills_engagement": .1, "support_feedback": .05}
+    assert any("synthetic" in x.lower() for x in methodology["limitations"])
+
+
+def test_missing_and_invalid_sources_are_separately_reported(tmp_path: Path):
+    pd.DataFrame({"student_id": ["S1"]}).to_csv(tmp_path / "students.csv", index=False)
+    (tmp_path / "academics.csv").write_text("student_id,unknown_metric\nS1,1\n", encoding="utf-8")
+    (tmp_path / "attendance.csv").write_text('student_id,attendance_pct\n"unterminated,70\n', encoding="utf-8")
+    report = inspect_sources(tmp_path)
+    assert "academics" in report["invalid_sources"]
+    assert "attendance" in report["invalid_sources"]
+    assert "lms" in report["missing_sources"]
+    assert report["sources"]["academics"]["valid"] is False
+
+
+def test_missing_values_stay_missing_and_coverage_threshold_statuses():
+    score = score_student({"cgpa": 8, "attendance_pct": None, "assignment_completion_pct": 90,
+                           "aptitude_score": 75, "coding_score": None, "mock_interview_score": 70})
+    assert score["coverage"] == pytest.approx(.65)
+    assert score["success_score"] is None
+    adequate = score_student({"cgpa": 8, "attendance_pct": 90, "assignment_completion_pct": 80,
+                              "aptitude_score": 75, "coding_score": 70, "mock_interview_score": 72})
+    assert adequate["coverage"] == pytest.approx(.85)
+    assert adequate["success_score"] is not None
+    assert adequate["score_status"] == "provisional"
+
+
 def test_student_ids_must_be_unique_and_present(tmp_path: Path):
     pd.DataFrame({"student_id": ["S1", "S1"]}).to_csv(tmp_path / "students.csv", index=False)
     with pytest.raises(DataValidationError, match="duplicate"):
@@ -92,6 +128,7 @@ def test_api_filters_pagination_profiles_and_csv_export(tmp_path: Path):
     app = create_app(); app.config["DATA_DIR"] = tmp_path; client = app.test_client()
     assert client.get("/api/health").status_code == 200
     assert client.get("/api/methodology").status_code == 200
+    assert client.get("/api/methodology").json["detected_source_count"] == 1
     assert client.get("/api/dashboard/summary").json["student_count"] == 2
     assert client.get("/api/students?per_page=1").json["pages"] == 2
     assert len(client.get("/api/students?department=CSE").json["items"]) == 1

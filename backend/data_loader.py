@@ -21,6 +21,15 @@ SOURCES: dict[str, tuple[str, ...]] = {
     "skills": ("student_id",),
     "skills_feedback": ("student_id",),
 }
+SOURCE_MEASUREMENTS: dict[str, tuple[str, ...]] = {
+    "academics": ("academic_marks", "cgpa", "current_cgpa", "gpa"),
+    "attendance": ("attendance_pct", "attendance_percentage", "attendance"),
+    "lms": ("lms_activity_score", "assignment_completion_pct", "assignment_completion", "assignments_completed_pct"),
+    "engagement": ("engagement_score", "activity_score"),
+    "placement": ("placement_readiness_score", "aptitude_score", "aptitude_pct", "coding_score", "coding_pct", "mock_interview_score", "interview_score"),
+    "skills": ("skills_score", "technical_skills_score", "technical_score", "soft_skills_score", "soft_skill_score"),
+    "skills_feedback": ("support_feedback_score", "skills_feedback_score", "feedback_score"),
+}
 HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     "student_id": ("student_id", "student id"),
     "name": ("name", "student name"),
@@ -79,12 +88,16 @@ def inspect_sources(data_dir: Path = DATA_DIR) -> dict[str, Any]:
     result: dict[str, Any] = {"data_dir": str(data_dir), "sources": {}, "errors": [], "warnings": []}
     for name, required in SOURCES.items():
         path = data_dir / f"{name}.csv"
-        item: dict[str, Any] = {"file": path.name, "present": path.is_file()}
+        item: dict[str, Any] = {"file": path.name, "present": path.is_file(), "valid": False}
         if path.is_file():
             try:
                 frame = pd.read_csv(path, dtype={"student_id": "string", "Student ID": "string"})
                 normalized = normalize_columns(frame)
                 missing = [col for col in required if col not in normalized.columns]
+                missing_measurements = []
+                expected_measurements = SOURCE_MEASUREMENTS.get(name, ())
+                if expected_measurements and not any(col in normalized.columns for col in expected_measurements):
+                    missing_measurements = list(expected_measurements)
                 if "student_id" in normalized:
                     ids = normalized["student_id"].astype("string").str.strip()
                     normalized["student_id"] = ids
@@ -104,15 +117,27 @@ def inspect_sources(data_dir: Path = DATA_DIR) -> dict[str, Any]:
                             if int(bad.sum()):
                                 invalid_values[column] = int(bad.sum())
                 item.update(rows=len(frame), columns=list(frame.columns), missing_columns=missing,
+                            missing_measurements=missing_measurements,
                             missing_student_ids=int((normalized["student_id"].isna() | normalized["student_id"].eq("")).sum()) if "student_id" in normalized else None,
                             duplicate_student_ids=int(normalized["student_id"].duplicated(keep=False).sum()) if "student_id" in normalized else None,
                             conflicting_student_id_groups=conflicts,
                             invalid_values=invalid_values)
                 if missing:
                     result["errors"].append(f"{name}.csv missing required columns: {', '.join(missing)}")
+                if missing_measurements:
+                    result["errors"].append(f"{name}.csv has no recognized measurement column")
+                structurally_valid = not missing and not missing_measurements and not item.get("missing_student_ids") and not item.get("duplicate_student_ids")
+                item["valid"] = bool(structurally_valid)
+                if missing or missing_measurements or item.get("missing_student_ids") or item.get("duplicate_student_ids"):
+                    item["validation_error"] = "Required columns or unique nonblank student IDs are invalid"
+                    if item.get("missing_student_ids"):
+                        result["errors"].append(f"{name}.csv contains blank student_id values")
+                    if item.get("duplicate_student_ids"):
+                        result["errors"].append(f"{name}.csv contains duplicate student_id values")
             except Exception:
                 # Keep filesystem paths and parser internals out of the API report.
                 item["read_error"] = "CSV could not be parsed"
+                item["valid"] = False
                 result["errors"].append(f"Could not read {name}.csv")
         else:
             item.update(rows=None, columns=[], missing_columns=[], missing_student_ids=None, duplicate_student_ids=None, conflicting_student_id_groups=None, invalid_values={})
@@ -121,7 +146,13 @@ def inspect_sources(data_dir: Path = DATA_DIR) -> dict[str, Any]:
             else:
                 result["warnings"].append(f"Optional source {name}.csv is missing")
         result["sources"][name] = item
-    result["student_records_available"] = bool(result["sources"]["students"]["present"] and not result["errors"])
+    roster = result["sources"]["students"]
+    result["student_records_available"] = bool(roster["present"] and roster["valid"])
+    result["expected_source_count"] = len(SOURCES)
+    result["detected_source_count"] = sum(source["valid"] for source in result["sources"].values())
+    result["detected_sources"] = [name for name, source in result["sources"].items() if source["valid"]]
+    result["missing_sources"] = [name for name, source in result["sources"].items() if not source["present"]]
+    result["invalid_sources"] = [name for name, source in result["sources"].items() if source["present"] and not source["valid"]]
     return result
 
 
@@ -184,12 +215,17 @@ def load_dataset(data_dir: Path = DATA_DIR) -> tuple[pd.DataFrame, dict[str, Any
                 quality["excluded_sources"].append({"source": name, "reason": "blank or duplicate student_id"})
                 quality["missing_source_rows"][name] = len(merged)
                 continue
+            if quality["sources"][name].get("missing_measurements"):
+                quality["excluded_sources"].append({"source": name, "reason": "no recognized measurement column"})
+                continue
             source_ids = set(source["student_id"].astype(str))
             quality["orphans"][name] = len(source_ids - roster_ids)
             quality["missing_source_rows"][name] = len(roster_ids - source_ids)
             source = source[source["student_id"].isin(roster_ids)].copy()
             collisions = [col for col in source.columns if col != "student_id" and col in merged.columns]
-            source = source.rename(columns={col: f"{name}_{col}" for col in collisions})
+            # Prefer explicit supplemental source measurements while retaining
+            # the unchanged roster values under a namespaced field.
+            merged = merged.rename(columns={col: f"students_{col}" for col in collisions})
             merged = merged.merge(source, on="student_id", how="left", validate="one_to_one")
         except Exception:
             quality["excluded_sources"].append({"source": name, "reason": "CSV could not be read or joined"})

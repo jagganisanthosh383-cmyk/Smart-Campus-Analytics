@@ -45,3 +45,26 @@ Recommendations are tied to observed indicators such as attendance, academic mar
 ## Assumptions and limitations
 
 Weights and thresholds are hackathon prototype choices, not official KPMG methodology. Available indicator headers and scales must be reconciled with institutional data dictionaries. The score describes observed data coverage and configured rules; it is not a calibrated probability of success, failure, retention, or placement. No labelled outcome data or validated predictive model exists here. Human review is required, and the system should not be used for punitive decisions.
+
+## Demo source schemas and relationships
+
+All source files use unique `student_id` text keys that match the ten synthetic IDs in `students.csv`. The files are joined one-to-one onto that roster; unmatched IDs are reported and not added to the roster. Supplemental rows in this repository are synthetic demonstration data.
+
+| File | Measurement columns | Purpose |
+|---|---|---|
+| `students.csv` | Existing roster fields | Student demo roster and dashboard baseline indicators |
+| `academics.csv` | `cgpa`, `academic_marks` | Academic performance (0-10 and 0-100) |
+| `attendance.csv` | `attendance_pct` | Attendance (0-100) |
+| `lms.csv` | `lms_activity_score`, `assignment_completion_pct` | LMS activity and completion (0-100) |
+| `engagement.csv` | `engagement_score` | Engagement (0-100) |
+| `placement.csv` | `aptitude_score`, `coding_score`, `mock_interview_score` | Placement assessment (0-100) |
+| `skills.csv` | `technical_skills_score`, `soft_skills_score` | Skills assessment (0-100) |
+| `skills_feedback.csv` | `support_feedback_score` | Support feedback (0-5 in the demo; confirm real source scale) |
+
+`/api/data-quality` and `/api/methodology` report expected, valid, missing, and invalid sources. A present file with missing required columns, unreadable CSV content, or blank/duplicate IDs is invalid and excluded from joins. Measurement values outside recognized ranges are reported and treated as unavailable by score components; they are never changed to zero.
+
+## Run and verify
+
+From the project root, follow the Windows PowerShell setup and test commands in the README. The local suite is `\.venv\Scripts\python.exe -m pytest -p no:cacheprovider backend\tests -q`; build the frontend from `frontend` using `npm run build`. To confirm the bundled demo source set, start the API and read `/api/data-quality`: `expected_source_count` and `detected_source_count` should both be 8, and `missing_sources` / `invalid_sources` should be empty. The UI should show `8/8 expected CSV sources valid`.
+
+The prototype is rule-based and does not predict academic failure. Risk thresholds are examples requiring institutional validation. Missing information alone is not a high-risk signal, and recommendations require staff review. Synthetic data must not be represented as real student records.
